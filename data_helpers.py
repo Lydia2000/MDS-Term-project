@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 class DataHolder:
    
@@ -22,7 +23,9 @@ class DataHolder:
         # datasets
         self.train_datasets = []
         self.test_datasets = []
+        self.validation_datasets = []
         self.expected_RUL_datasets = []
+        
     
     def load_data(self):
 
@@ -42,21 +45,21 @@ class DataHolder:
             test_df.columns = self.data_columns
             RUL_df.columns = self.RUL_columns
 
+            # Split train and validation dataset
+            train_df, validation_df = train_test_split(train_df, test_size=0.2, random_state=42)
+
+            # Reset the index for both train_set and validation_set
+            train_df = train_df.reset_index(drop=True)
+            validation_df = validation_df.reset_index(drop=True)
+
             # Appending dataframe to dataset list
             self.train_datasets.append(train_df)
             self.test_datasets.append(test_df)
+            self.validation_datasets.append(validation_df)
             self.expected_RUL_datasets.append(RUL_df)
 
-    def preprocess(self):
-        
-        for train_df, test_df, RUL_df in zip(self.train_datasets, self.test_datasets, self.expected_RUL_datasets):
-            pass
-            # Normalization
-            
-        
-        pass
 
     def get(self):
-        
-        return self.train_datasets, self.test_datasets, self.expected_RUL_datasets
+        self.load_data()
+        return self.train_datasets, self.validation_datasets, self.test_datasets, self.expected_RUL_datasets
 
