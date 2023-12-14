@@ -3,17 +3,22 @@ import pandas as pd
 import random
 import math
 import copy
+import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import ElasticNet
-
+import torch
+from torch.utils.data import Dataset
 
 class DataHolder:
    
-    def __init__(self) -> None:
-        
+    def __init__(self, config) -> None:
+        torch.manual_seed(8)
         self.data_path = 'data'+ os.sep
+        self.units = []
+        self.config = config
+        self.window_size = self.config.window_size
 
         # names of files
         self.train_files = [f'train_FD00{i}.txt' for i in range(1,5)]
@@ -32,7 +37,6 @@ class DataHolder:
         self.test_datasets = []
         self.validation_datasets = []
         self.expected_RUL_datasets = []
-        
     
     def load_data(self):
 
@@ -52,49 +56,66 @@ class DataHolder:
             test_df.columns = self.data_columns
             RUL_df.columns = self.RUL_columns
 
+            # set units
+            units = set(train_df['Unit Number'])
+            self.units.append(units)
+            if i == 1:
+                units.remove(260) # test_dataset2 has miss value of unit 260
+            if i == 3:
+                units.remove(249) #  test_dataset4 has miss value of unit 249
+
+            # Add y in train, val 
+            train_df = self.calculate_train_RUL(train_df)
+            
+            # Add y in test_df
+            test_df = self.calculate_test_RUL(test_df, RUL_df, units)
+
             # Split train and validation dataset
             n = train_df.loc[len(train_df)-1,"Unit Number"]
             random_numbers = random.sample(range(n+1), math.floor(n*0.2))
-
             validation_df = train_df[train_df["Unit Number"].isin(random_numbers)]
             train_df = train_df[~train_df["Unit Number"].isin(random_numbers)]
-            # print(validation_df)
+           
             # Reset the index for both train_set and validation_set
             train_df = train_df.reset_index(drop=True)
             validation_df = validation_df.reset_index(drop=True)
 
             # Appending dataframe to dataset list
             self.train_datasets.append(train_df)
-            self.test_datasets.append(test_df)
             self.validation_datasets.append(validation_df)
+            self.test_datasets.append(test_df)
             self.expected_RUL_datasets.append(RUL_df)
 
-    def get(self):
-        self.load_data()
-        return self.train_datasets, self.validation_datasets, self.test_datasets, self.expected_RUL_datasets
-    
-# data = DataHolder()
-# train_datasets, validation_datasets, test_datasets, expected_RUL_datasets = data.get()
+    def calculate_train_RUL(self, train_df):
 
-class fit_pca:
-   
-    def __init__(self) -> None:
-        data = DataHolder()
-        train_datasets, validation_datasets, test_datasets, expected_RUL_datasets = data.get()
-        self.train_datasets = train_datasets
-        self.validation_datasets = validation_datasets
-        self.test_datasets = test_datasets
-        self.expected_RUL_datasets = expected_RUL_datasets
-        
+        units_id = set(train_df['Unit Number']) # if dataset is 1 training set still can use unit_id:260 to train model
+        rul_list = []
+        for unit in units_id:
+            time_list = np.array(train_df[train_df['Unit Number'] == unit]['Time (Cycles)'])
+            length = len(time_list)
+            rul = list(length - time_list)
+            rul_list += rul
+        train_df['Expected RUL'] = rul_list
+
+        return train_df
     
-    def pc(self):
+    def calculate_test_RUL(self, test_df, RUL_df, units):
         
+        rul_list = []
+        for unit in units:
+            time_list = np.array(test_df[test_df['Unit Number'] == unit]['Time (Cycles)'])
+            length = len(time_list)
+            test_rul = RUL_df.iloc[unit-1].item()
+            rul = list(length - time_list + test_rul)
+            rul_list += rul
+        test_df['Expected RUL'] = rul_list
+
+        return test_df
+    
+    def fit_pca(self):
         self.trainDatasetsCopy = copy.deepcopy(self.train_datasets)
         self.validationDatasetsCopy = copy.deepcopy(self.validation_datasets)
         self.testDatasetsCopy = copy.deepcopy(self.test_datasets)
-        # print(self.trainDatasetsCopy)
-        # print(self.validationDatasetsCopy)
-
         
         scaler = []
 
@@ -103,19 +124,19 @@ class fit_pca:
             scaler.append(sc)
 
         for i in range(4):
-            self.trainDatasetsCopy[i].iloc[:, 2:] = scaler[i].fit_transform(self.trainDatasetsCopy[i].iloc[:, 2:])
-            self.validationDatasetsCopy[i].iloc[:, 2:] = scaler[i].transform(self.validationDatasetsCopy[i].iloc[:, 2:])
-            self.testDatasetsCopy[i].iloc[:, 2: ] = scaler[i].transform(self.testDatasetsCopy[i].iloc[:, 2:])
+            self.trainDatasetsCopy[i].iloc[:, 2:-1] = scaler[i].fit_transform(self.trainDatasetsCopy[i].iloc[:, 2:-1])
+            self.validationDatasetsCopy[i].iloc[:, 2:-1] = scaler[i].transform(self.validationDatasetsCopy[i].iloc[:, 2:-1])
+            self.testDatasetsCopy[i].iloc[:, 2:-1] = scaler[i].transform(self.testDatasetsCopy[i].iloc[:, 2:-1])
         
-        pca = PCA(n_components = 10)
+        pca = PCA(n_components = self.config.n_components)
 
         newColumns = ['PCA1', 'PCA2', 'PCA3', 'PCA4', 'PCA5', 'PCA6', 'PCA7', 'PCA8', 'PCA9', 'PCA10']
 
         for i in range(4):
             # Finding Principal Components
-            temp1 = pca.fit_transform(self.trainDatasetsCopy[i].iloc[:, 2:])
-            temp2 = pca.transform(self.validationDatasetsCopy[i].iloc[:, 2:])
-            temp3 = pca.transform(self.testDatasetsCopy[i].iloc[:, 2:])
+            temp1 = pca.fit_transform(self.trainDatasetsCopy[i].iloc[:, 2:-1])
+            temp2 = pca.transform(self.validationDatasetsCopy[i].iloc[:, 2:-1])
+            temp3 = pca.transform(self.testDatasetsCopy[i].iloc[:, 2:-1])
 
             # Converting to Dataframes
             temp1 = pd.DataFrame(temp1, columns = newColumns)
@@ -123,19 +144,88 @@ class fit_pca:
             temp3 = pd.DataFrame(temp3, columns = newColumns)
 
             # Dropping Excess Data
-            self.trainDatasetsCopy[i].drop(inplace = True, columns = self.trainDatasetsCopy[i].columns[2:])
-            self.validationDatasetsCopy[i].drop(inplace = True, columns = self.validationDatasetsCopy[i].columns[2:])
-            self.testDatasetsCopy[i].drop(inplace = True, columns = self.testDatasetsCopy[i].columns[2:])
+            self.trainDatasetsCopy[i].drop(inplace = True, columns = self.trainDatasetsCopy[i].columns[2:-1])
+            self.validationDatasetsCopy[i].drop(inplace = True, columns = self.validationDatasetsCopy[i].columns[2:-1])
+            self.testDatasetsCopy[i].drop(inplace = True, columns = self.testDatasetsCopy[i].columns[2:-1])
 
             # Merging New Data
             self.trainDatasetsCopy[i] = pd.merge(self.trainDatasetsCopy[i], temp1, left_index=True, right_index=True)
             self.validationDatasetsCopy[i] = pd.merge(self.validationDatasetsCopy[i], temp2, left_index=True, right_index=True)
             self.testDatasetsCopy[i] = pd.merge(self.testDatasetsCopy[i], temp3, left_index=True, right_index=True)
 
-    def result_df(self):
-        self.pc()
-        return self. trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy, self.expected_RUL_datasets
+        return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy
     
+    def get(self, dataset_index):
+
+        self.load_data()
+
+        # Access the datasets based on the specified index
+        self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_pca()
+        train_df = self.train_datasets[dataset_index]
+        valid_df = self.validation_datasets[dataset_index]
+        test_df = self.test_datasets[dataset_index]
+
+        # Get indices for training and validation datasets based on window_size
+        window = self.window_size
+        train_indices = list(train_df[(train_df['Expected RUL'] >= (window - 1)) & (train_df['Time (Cycles)'] > 10)].index)
+        val_indices = list(valid_df[(valid_df['Expected RUL'] >= (window - 1)) & (valid_df['Time (Cycles)'] > 10)].index)
+        
+        # Create instances of custom datasets using the obtained indices
+        train_dataset = CustomDataset(train_indices, train_df)
+        val_dataset = CustomDataset(val_indices, valid_df)
+        min_unit_id = min(self.units[dataset_index])
+        max_unit_id = max(self.units[dataset_index])
+        units = np.arange(min_unit_id, max_unit_id+1)
+        test_dataset = TestDataset(units, test_df)
+
+        return train_dataset, val_dataset, test_dataset
+
+class CustomDataset(Dataset):
+    """
+    Custom dataset class for handling data.
+
+    Args:
+        list_indices (list): List of indices to use for the dataset.
+        df_train (pandas.DataFrame): Training dataframe.
+    """
+    def __init__(self, list_indices, df_train):
+        
+        self.indices = list_indices
+        self.df_train = df_train
+        
+    def __len__(self):
+        
+        return len(self.indices)
+    
+    def __getitem__(self, idx):
+        
+        ind = self.indices[idx]
+        
+        X_ = self.df_train.iloc[ind : ind + 20, :].copy()
+        y_ = self.df_train.iloc[ind + 19]['Expected RUL']
+        X_ = X_.drop(['Unit Number','Time (Cycles)','Expected RUL'], axis = 1).to_numpy()
+
+        return X_, y_
+    
+class TestDataset(Dataset):
+    
+    def __init__(self, units, df_test):
+        
+        self.units = units
+        self.df_test = df_test
+        
+    def __len__(self):
+        
+        return len(self.units)
+    
+    def __getitem__(self, idx):
+        
+        n = self.units[idx]
+        U = self.df_test[self.df_test['Unit Number'] == n].copy()
+        X_ = U.reset_index().iloc[-20:,:].drop(['index','Unit Number','Time (Cycles)','Expected RUL'], axis = 1).copy().to_numpy()
+        y_ = U['Expected RUL'].min()
+        
+        return X_, y_
 
 class fit_ElasticNet:
    
@@ -211,5 +301,18 @@ class fit_ElasticNet:
 
     def result_df(self):
         self.en()
-        return self. trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy, self.expected_RUL_datasets
+        return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy, self.expected_RUL_datasets
 
+if __name__=="__main__":
+
+    # print(valid_df)
+    # train_indices = list(train_data[(train_data['rul'] >= (window - 1)) & (train_data['time'] > 10)].index)
+    # val_indices = list(val_data[(val_data['rul'] >= (window - 1)) & (val_data['time'] > 10)].index)
+
+    # print(train_df)
+    # print(data_holder.train_datasets[0].shape)
+    # print(data_holder.validation_datasets[0].shape)
+    # train_dataset = CustomDataset(train_indices, train_df)
+    # print(train_dataset[0])
+    # print(data_holder.train_datasets[0].shape)
+    pass
