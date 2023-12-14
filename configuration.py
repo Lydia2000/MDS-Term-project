@@ -3,7 +3,7 @@ from torch import nn
 from lstm import LSTMModel
 
 class Configuration():
-    def __init__(self, output_dir="output"):
+    def __init__(self, preprocessing_method, output_dir="output"):
         
         # Configuration
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -11,12 +11,19 @@ class Configuration():
         # Hyper parameter setting
         self.batch_size = 64
         self.learning_rate = 0.001
-        self.n_features = 16  # number of feature
+        self.n_components = 10
+
+        if preprocessing_method == 'pca':
+            self.n_features = self.n_components  # number of feature
+        elif preprocessing_method == 'en':
+            pass
+
         self.hidden_dim = 10
         self.output_dim = 1
         self.n_layers = 4 
         self.dropout = 0.05
         self.epochs = 100 # 100
+        self.window_size = 20
 
         # Initial model
         self.model_name = 'lstm' # other model can be added
