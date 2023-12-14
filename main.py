@@ -7,9 +7,12 @@ from lstm import LSTMModel
 def main():
     print("="*80)
 
-    config_main = Configuration()
-    holder = DataHolder()
-    train_dataset, eval_dataset, test_dataset = holder.get()
+    config_main = Configuration(preprocessing_method='pca') # en
+    holder = DataHolder(config_main)
+
+    train_dataset, eval_dataset, test_dataset = holder.get(
+        dataset_index = 1,
+    )
     
     # Initialize Trainer with the configuration and datasets
     trainer = Trainer(
