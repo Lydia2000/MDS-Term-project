@@ -87,7 +87,6 @@ class Trainer:
         current_patience = 0
         final = False
 
-        
 
         for epoch in range(self.epochs):
 
