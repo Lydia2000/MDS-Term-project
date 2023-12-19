@@ -130,7 +130,7 @@ class DataHolder:
         
         pca = PCA(n_components = self.config.n_components)
 
-        newColumns = ['PCA1', 'PCA2', 'PCA3', 'PCA4', 'PCA5', 'PCA6', 'PCA7', 'PCA8', 'PCA9', 'PCA10']
+        newColumns = [f'PCA{i}' for i in range(1, self.config.n_components+1)]
 
         for i in range(4):
             # Finding Principal Components
@@ -179,6 +179,10 @@ class DataHolder:
         test_dataset = TestDataset(units, test_df)
 
         return train_dataset, val_dataset, test_dataset
+
+    def get_raw_data(self, dataset_index):
+
+        return train_df, valid_df, test_df
 
 class CustomDataset(Dataset):
     """
