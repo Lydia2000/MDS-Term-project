@@ -1,7 +1,8 @@
 import pickle        
 import matplotlib.pyplot as plt
 import numpy as np
-
+from sklearn.metrics import mean_squared_error
+import seaborn as sns
 def load(dir):
 
     with open(dir, "rb") as f:  # Python 3: open(..., "rb")
@@ -46,3 +47,12 @@ def plot_prediction(y_pred, y_true):
     plt.savefig('prediction.png')
     plt.show()
     print('Prediction image saved to: prediction.png')
+
+def plot_pca_loading(pca):
+    pass
+
+def calculate_RMSE(y_pred, y_true):
+
+    rmse = mean_squared_error(y_true.cpu(), y_pred.cpu(), squared=False)
+    print(f'prediction RMSE:{rmse}')
+    return rmse
