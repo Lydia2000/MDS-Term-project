@@ -46,7 +46,7 @@ class LSTMModel(nn.Module):
         # Initialize cell state
         c0 = torch.zeros(self.n_layers, x.size(1), self.hidden_dim).to(self.device)
 
-        output, (hidden_state, cell_state) = self.lstm(x, (h0, c0))
+        output, (hidden_state, cell_state) = self.lstm(x.to(self.device), (h0, c0))
         output = self.fc(output[-1, :, :])
         
         # output.shape is (64, 1)

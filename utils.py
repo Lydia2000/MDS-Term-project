@@ -41,19 +41,29 @@ def plot_loss(training_losses, validation_losses):
 def plot_prediction(y_pred, y_true):
 
     # Plot predicted values and true value
-    fig, ax = plt.subplots(figsize = (14,8))
-    ax.plot(np.arange(y_pred.shape[0]), y_pred.cpu().numpy(), label = 'predictions', c = 'salmon') # y_pred.shape[0] -> batch_size
-    ax.plot(np.arange(y_true.shape[0]), y_true.cpu().numpy(), label = 'true values', c = 'lightseagreen')
-
-    # set labels and grid
-    ax.set_xlabel('Test Engine Units', fontsize = 16)
-    ax.set_ylabel('RUL', fontsize = 16)
-    ax.grid(True)
-    ax.legend()
-    
+    x = np.array(range(len(y_pred)))
+    fig,ax1 = plt.subplots(figsize = (20,8))
+    w=0.6
+    yp = ax1.bar(x-w/2,np.squeeze(abs(y_pred.cpu())*10), color='r', width=w,align='center')
+    yt = ax1.bar(x + w/2,np.squeeze(y_true.cpu()), color='g', width=w,align='center')
+    plt.legend([yt, yp],['y_true','y_pred'])
     plt.savefig('prediction.png')
     plt.show()
-    print('Prediction image saved to: prediction.png')
+
+    # # Plot predicted values and true value
+    # fig, ax = plt.subplots(figsize = (14,8))
+    # ax.plot(np.arange(y_pred.shape[0]), y_pred.cpu().numpy(), label = 'predictions', c = 'salmon') # y_pred.shape[0] -> batch_size
+    # ax.plot(np.arange(y_true.shape[0]), y_true.cpu().numpy(), label = 'true values', c = 'lightseagreen')
+
+    # # set labels and grid
+    # ax.set_xlabel('Test Engine Units', fontsize = 16)
+    # ax.set_ylabel('RUL', fontsize = 16)
+    # ax.grid(True)
+    # ax.legend()
+    
+    # plt.savefig('prediction.png')
+    # plt.show()
+    # print('Prediction image saved to: prediction.png')
 
 def plot_pca_loading(pca):
     pass

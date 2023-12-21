@@ -30,7 +30,7 @@ def main():
         optimizer = config_main.optimizer,
     )
     plot_loss(training_losses, validation_losses)
-    save(forecast_model, "LSTM.pkl")
+    # save(forecast_model, "LSTM.pkl")
 
     # Make predictions on the test dataset
     forecast_model = load("LSTM.pkl")

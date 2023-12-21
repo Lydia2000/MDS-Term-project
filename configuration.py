@@ -20,12 +20,12 @@ class Configuration():
             self.n_features = self.n_components
         else:
             self.n_features = 24
-
+ 
         self.hidden_dim = 10
         self.output_dim = 1
         self.n_layers = 8 
-        self.dropout = 0.05 # 0.05
-        self.epochs = 200 # 100
+        self.dropout = 0.0 # 0.05
+        self.epochs = 100 # 100
         self.window_size = 30
 
         # Initial model
