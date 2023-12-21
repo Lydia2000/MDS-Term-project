@@ -10,6 +10,42 @@ from sklearn.linear_model import ElasticNet
 import torch
 from torch.utils.data import Dataset
 from utils import plot_pca_loading
+
+def smooth_dataframe(df):
+    def smooth(s, b = 0.75):
+
+        v = np.zeros(len(s)+1) #v_0 is already 0.
+        bc = np.zeros(len(s)+1)
+
+        for i in range(1, len(v)): #v_t = 0.95
+            v[i] = (b * v[i-1] + (1-b) * s[i-1]) 
+            bc[i] = 1 - b**i
+
+        sm = v[1:] / bc[1:]
+        
+        return sm
+    cols = list(df.columns)
+    cols.remove('Unit Number')
+    cols.remove('Time (Cycles)')
+    cols.remove('Expected RUL')
+    unit_ids = set(df['Unit Number'].values)
+
+    for c in cols:
+        sm_list = []
+        for n in unit_ids:
+            s = np.array(df[df['Unit Number'] == n][c].copy())
+            sm = list(smooth(s))
+            sm_list += sm
+        
+        df[c+'_smoothed'] = sm_list
+
+    for c in cols:
+        if 'smoothed' not in c:
+            df[c] = df[c+'_smoothed']
+            df.drop(c+'_smoothed', axis = 1, inplace = True)
+    
+    return df 
+
 class DataHolder:
    
     def __init__(self, config) -> None:
@@ -219,7 +255,15 @@ class DataHolder:
         start = cols[0]
         end = cols[-1]
         return cols, start, end
+    
+    def fit_transform_df(self, train_df, val_df, test_df):
 
+        sc = StandardScaler() # MinMaxScaler 學不到任何資訊
+        train_df.loc[:, "OP1":"S21"] = sc.fit_transform(train_df.loc[:, "OP1":"S21"])
+        val_df.loc[:, "OP1":"S21"] = sc.fit_transform(val_df.loc[:, "OP1":"S21"])
+        test_df.loc[:, "OP1":"S21"] = sc.fit_transform(test_df.loc[:, "OP1":"S21"])
+        return train_df, val_df, test_df
+    
     def fit_transform(self):
 
         self.trainDatasetsCopy = copy.deepcopy(self.train_datasets)
@@ -238,41 +282,6 @@ class DataHolder:
             self.testDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].transform(self.testDatasetsCopy[i].loc[:, "OP1":"S21"])
 
         return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy
-    
-    def smooth_dataframe(self, df):
-        def smooth(s, b = 0.98):
-
-            v = np.zeros(len(s)+1) #v_0 is already 0.
-            bc = np.zeros(len(s)+1)
-
-            for i in range(1, len(v)): #v_t = 0.95
-                v[i] = (b * v[i-1] + (1-b) * s[i-1]) 
-                bc[i] = 1 - b**i
-
-            sm = v[1:] / bc[1:]
-            
-            return sm
-        cols = list(df.columns)
-        cols.remove('Unit Number')
-        cols.remove('Time (Cycles)')
-        cols.remove('Expected RUL')
-        unit_ids = set(df['Unit Number'].values)
-
-        for c in cols:
-            sm_list = []
-            for n in unit_ids:
-                s = np.array(df[df['Unit Number'] == n][c].copy())
-                sm = list(smooth(s, 0.98))
-                sm_list += sm
-            
-            df[c+'_smoothed'] = sm_list
-
-        for c in cols:
-            if 'smoothed' not in c:
-                df[c] = df[c+'_smoothed']
-                df.drop(c+'_smoothed', axis = 1, inplace = True)
-        
-        return df 
 
     def get(self, dataset_index: int):
 
@@ -289,8 +298,8 @@ class DataHolder:
             self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_pca()
             print("Done.")
 
-        else:
-            self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_transform()
+        # else:
+        #     self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_transform()
 
         train_df = self.train_datasets[dataset_index]
         valid_df = self.validation_datasets[dataset_index]
@@ -299,6 +308,7 @@ class DataHolder:
         # train_df = self.smooth_dataframe(train_df)
         # valid_df = self.smooth_dataframe(valid_df)
         # test_df = self.smooth_dataframe(test_df)
+        train_df, valid_df, test_df = self.fit_transform_df(train_df, valid_df, test_df)
 
         # select PC
         if self.config.preprocessing_method == 'pca':
@@ -348,8 +358,10 @@ class CustomDataset(Dataset):
         ind = self.indices[idx]
         
         X_ = self.df_train.iloc[ind : ind + self.window_size, :].copy()
+        X_ = smooth_dataframe(X_)
         y_ = self.df_train.iloc[ind + self.window_size-1]['Expected RUL']
         X_ = X_.drop(['Unit Number','Time (Cycles)','Expected RUL'], axis = 1).to_numpy()
+        
 
         return X_, y_
     
@@ -369,10 +381,11 @@ class TestDataset(Dataset):
         n = self.units[idx]
         U = self.df_test[self.df_test['Unit Number'] == n].copy()
         X_ = U.reset_index().iloc[-self.window_size:,:].drop(['index','Unit Number','Time (Cycles)','Expected RUL'], axis = 1).copy().to_numpy()
+        X_ = smooth_dataframe(X_)
         y_ = U['Expected RUL'].min()
         
+        
         return X_, y_
-
 
 if __name__=="__main__":
 
