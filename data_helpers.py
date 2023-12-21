@@ -4,13 +4,12 @@ import random
 import math
 import copy
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import ElasticNet
 import torch
 from torch.utils.data import Dataset
-
+from utils import plot_pca_loading
 class DataHolder:
    
     def __init__(self, config) -> None:
@@ -112,6 +111,60 @@ class DataHolder:
 
         return test_df
     
+    def fit_en(self):
+        
+        self.trainDatasetsCopy = copy.deepcopy(self.train_datasets)
+        self.validationDatasetsCopy = copy.deepcopy(self.validation_datasets)
+        self.testDatasetsCopy = copy.deepcopy(self.test_datasets)
+
+        scaler = []
+
+        for i in range(4):
+            sc = StandardScaler()
+            scaler.append(sc)
+        
+        for i in range(4):
+            self.trainDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].fit_transform(self.trainDatasetsCopy[i].loc[:, "OP1":"S21"])
+            self.validationDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].fit_transform(self.validationDatasetsCopy[i].loc[:, "OP1":"S21"])
+            self.testDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].transform(self.testDatasetsCopy[i].loc[:, "OP1":"S21"])
+
+        for i in range(4):
+
+            # fit elastic_net
+            elastic_net = ElasticNet(alpha=1.0, l1_ratio=0.5, max_iter=1000) # alpha(lamda) = 1, l1_ratio=0.5 is package default
+            elastic_net.fit(self.trainDatasetsCopy[i].loc[:,"OP1":"S21"], self.trainDatasetsCopy[i].loc[:,"Expected RUL"])
+
+            # rank feature by absolute value of coefficients
+            coef = pd.DataFrame(elastic_net.coef_, index=elastic_net.feature_names_in_,columns=["coefficient"])
+            sort_features_name = abs(coef).sort_values(ascending=False, by="coefficient").index.tolist()
+            # print(abs(coef).sort_values(ascending=False, by="coefficient"))
+
+            n_features = self.config.n_features
+            top_10_features = []
+            for j in range(n_features):
+                top_10_features.append(sort_features_name[j])
+
+            temp1 = self.trainDatasetsCopy[i].loc[:,top_10_features]
+            temp2 = self.validationDatasetsCopy[i].loc[:,top_10_features]
+            temp3 = self.testDatasetsCopy[i].loc[:,top_10_features]
+
+            # Converting to Dataframes
+            temp1 = pd.DataFrame(temp1, columns = top_10_features)
+            temp2 = pd.DataFrame(temp2, columns = top_10_features)
+            temp3 = pd.DataFrame(temp3, columns = top_10_features)
+
+            # Dropping Excess Data
+            self.trainDatasetsCopy[i].drop(inplace = True, columns = self.trainDatasetsCopy[i].columns[2:-1])
+            self.validationDatasetsCopy[i].drop(inplace = True, columns = self.validationDatasetsCopy[i].columns[2:-1])
+            self.testDatasetsCopy[i].drop(inplace = True, columns = self.testDatasetsCopy[i].columns[2:-1])
+
+            # Merging New Data
+            self.trainDatasetsCopy[i] = pd.merge(self.trainDatasetsCopy[i], temp1, left_index=True, right_index=True)
+            self.validationDatasetsCopy[i] = pd.merge(self.validationDatasetsCopy[i], temp2, left_index=True, right_index=True)
+            self.testDatasetsCopy[i] = pd.merge(self.testDatasetsCopy[i], temp3, left_index=True, right_index=True)
+
+        return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy
+
     def fit_pca(self):
         self.trainDatasetsCopy = copy.deepcopy(self.train_datasets)
         self.validationDatasetsCopy = copy.deepcopy(self.validation_datasets)
@@ -130,13 +183,16 @@ class DataHolder:
         
         pca = PCA(n_components = self.config.n_components)
 
-        newColumns = [f'PCA{i}' for i in range(1, self.config.n_components+1)]
+        newColumns = [f'PC{i}' for i in range(1, self.config.n_components+1)]
 
         for i in range(4):
+
+            cols, start, end = self.get_features_name(self.train_datasets[i])
+
             # Finding Principal Components
-            temp1 = pca.fit_transform(self.trainDatasetsCopy[i].iloc[:, 2:-1])
-            temp2 = pca.transform(self.validationDatasetsCopy[i].iloc[:, 2:-1])
-            temp3 = pca.transform(self.testDatasetsCopy[i].iloc[:, 2:-1])
+            temp1 = pca.fit_transform(self.trainDatasetsCopy[i].loc[:, start:end])
+            temp2 = pca.transform(self.validationDatasetsCopy[i].loc[:, start:end])
+            temp3 = pca.transform(self.testDatasetsCopy[i].loc[:, start:end])
 
             # Converting to Dataframes
             temp1 = pd.DataFrame(temp1, columns = newColumns)
@@ -144,9 +200,9 @@ class DataHolder:
             temp3 = pd.DataFrame(temp3, columns = newColumns)
 
             # Dropping Excess Data
-            self.trainDatasetsCopy[i].drop(inplace = True, columns = self.trainDatasetsCopy[i].columns[2:-1])
-            self.validationDatasetsCopy[i].drop(inplace = True, columns = self.validationDatasetsCopy[i].columns[2:-1])
-            self.testDatasetsCopy[i].drop(inplace = True, columns = self.testDatasetsCopy[i].columns[2:-1])
+            self.trainDatasetsCopy[i].drop(inplace = True, columns = cols)
+            self.validationDatasetsCopy[i].drop(inplace = True, columns = cols)
+            self.testDatasetsCopy[i].drop(inplace = True, columns = cols)
 
             # Merging New Data
             self.trainDatasetsCopy[i] = pd.merge(self.trainDatasetsCopy[i], temp1, left_index=True, right_index=True)
@@ -155,18 +211,108 @@ class DataHolder:
 
         return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy
     
-    def get(self, dataset_index):
+    def get_features_name(self, df):
+        cols = list(df.columns)
+        cols.remove('Unit Number')
+        cols.remove('Time (Cycles)')
+        cols.remove('Expected RUL')
+        start = cols[0]
+        end = cols[-1]
+        return cols, start, end
+
+    def fit_transform(self):
+
+        self.trainDatasetsCopy = copy.deepcopy(self.train_datasets)
+        self.validationDatasetsCopy = copy.deepcopy(self.validation_datasets)
+        self.testDatasetsCopy = copy.deepcopy(self.test_datasets)
+
+        scaler = []
+
+        for i in range(4):
+            sc = StandardScaler() # MinMaxScaler 學不到任何資訊
+            scaler.append(sc)
+        
+        for i in range(4):
+            self.trainDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].fit_transform(self.trainDatasetsCopy[i].loc[:, "OP1":"S21"])
+            self.validationDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].fit_transform(self.validationDatasetsCopy[i].loc[:, "OP1":"S21"])
+            self.testDatasetsCopy[i].loc[:, "OP1":"S21"] = scaler[i].transform(self.testDatasetsCopy[i].loc[:, "OP1":"S21"])
+
+        return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy
+    
+    def smooth_dataframe(self, df):
+        def smooth(s, b = 0.98):
+
+            v = np.zeros(len(s)+1) #v_0 is already 0.
+            bc = np.zeros(len(s)+1)
+
+            for i in range(1, len(v)): #v_t = 0.95
+                v[i] = (b * v[i-1] + (1-b) * s[i-1]) 
+                bc[i] = 1 - b**i
+
+            sm = v[1:] / bc[1:]
+            
+            return sm
+        cols = list(df.columns)
+        cols.remove('Unit Number')
+        cols.remove('Time (Cycles)')
+        cols.remove('Expected RUL')
+        unit_ids = set(df['Unit Number'].values)
+
+        for c in cols:
+            sm_list = []
+            for n in unit_ids:
+                s = np.array(df[df['Unit Number'] == n][c].copy())
+                sm = list(smooth(s, 0.98))
+                sm_list += sm
+            
+            df[c+'_smoothed'] = sm_list
+
+        for c in cols:
+            if 'smoothed' not in c:
+                df[c] = df[c+'_smoothed']
+                df.drop(c+'_smoothed', axis = 1, inplace = True)
+        
+        return df 
+
+    def get(self, dataset_index: int):
 
         self.load_data()
 
         # Access the datasets based on the specified index
-        self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_pca()
+        if self.config.preprocessing_method == 'en':
+            print("Do elastic net to select important features")   
+            self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_en()
+            print("Done.")
+
+        elif self.config.preprocessing_method == 'pca':
+            print("Do PCA")
+            self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_pca()
+            print("Done.")
+
+        else:
+            self.train_datasets, self.validation_datasets, self.test_datasets = self.fit_transform()
+
         train_df = self.train_datasets[dataset_index]
         valid_df = self.validation_datasets[dataset_index]
         test_df = self.test_datasets[dataset_index]
+        
+        train_df = self.smooth_dataframe(train_df)
+        valid_df = self.smooth_dataframe(valid_df)
+        test_df = self.smooth_dataframe(test_df)
 
+        # select PC
+        if self.config.preprocessing_method == 'pca':
+            PC_to_drop = [f'PC{i}' for i in range(self.config.n_features+1,11)]
+            train_df.drop(PC_to_drop, axis=1, inplace=True)
+            valid_df.drop(PC_to_drop, axis=1, inplace=True)
+            test_df.drop(PC_to_drop, axis=1, inplace=True)
+            
+        cols, start, end = self.get_features_name(train_df)
+        print("Choose",cols,'as health index')
+        
         # Get indices for training and validation datasets based on window_size
         window = self.window_size
+
         train_indices = list(train_df[(train_df['Expected RUL'] >= (window - 1)) & (train_df['Time (Cycles)'] > 10)].index)
         val_indices = list(valid_df[(valid_df['Expected RUL'] >= (window - 1)) & (valid_df['Time (Cycles)'] > 10)].index)
         
@@ -179,10 +325,6 @@ class DataHolder:
         test_dataset = TestDataset(units, test_df)
 
         return train_dataset, val_dataset, test_dataset
-
-    def get_raw_data(self, dataset_index):
-
-        return train_df, valid_df, test_df
 
 class CustomDataset(Dataset):
     """
@@ -231,81 +373,6 @@ class TestDataset(Dataset):
         
         return X_, y_
 
-class fit_ElasticNet:
-   
-    def __init__(self) -> None:
-        data = DataHolder()
-        train_datasets, validation_datasets, test_datasets, expected_RUL_datasets = data.get()
-        self.train_datasets = train_datasets
-        self.validation_datasets = validation_datasets
-        self.test_datasets = test_datasets
-        self.expected_RUL_datasets = expected_RUL_datasets
-    
-    def Calculate_RUL(self,df):
-        max_cycles = df.groupby('Unit Number')['Time (Cycles)'].max()
-        merged = df.merge(max_cycles.to_frame(name='max_time_cycle'), left_on='Unit Number',right_index=True)
-        merged["RUL"] = merged["max_time_cycle"] - merged['Time (Cycles)']
-        merged = merged.drop("max_time_cycle", axis=1)
-        return merged
-    
-    def en(self):
-        
-        self.trainDatasetsCopy = copy.deepcopy(self.train_datasets)
-        self.validationDatasetsCopy = copy.deepcopy(self.validation_datasets)
-        self.testDatasetsCopy = copy.deepcopy(self.test_datasets)
-
-        scaler = []
-
-        for i in range(4):
-            sc = StandardScaler()
-            scaler.append(sc)
-        
-        for i in range(4):
-            self.trainDatasetsCopy[i].iloc[:, 2:] = scaler[i].fit_transform(self.trainDatasetsCopy[i].iloc[:, 2:])
-            self.validationDatasetsCopy[i].iloc[:, 2:] = scaler[i].fit_transform(self.validationDatasetsCopy[i].iloc[:, 2:])
-            self.testDatasetsCopy[i].iloc[:, 2: ] = scaler[i].transform(self.testDatasetsCopy[i].iloc[:, 2:])
-
-        for i in range(4):
-            self.trainDatasetsCopy[i] = self.Calculate_RUL(self.trainDatasetsCopy[i])
-        
-        for i in range(4):
-
-            # fit elastic_net
-            elastic_net = ElasticNet(alpha=1.0, l1_ratio=0.5, max_iter=1000) # alpha(lamda) = 1, l1_ratio=0.5 is package default
-            elastic_net.fit(self.trainDatasetsCopy[i].loc[:,"OP1":"S21"], self.trainDatasetsCopy[i].loc[:,"RUL"])
-
-            # rank feature by absolute value of coefficients
-            coef = pd.DataFrame(elastic_net.coef_, index=elastic_net.feature_names_in_,columns=["coefficient"])
-            sort_features_name = abs(coef).sort_values(ascending=False, by="coefficient").index.tolist()
-            # print(abs(coef).sort_values(ascending=False, by="coefficient"))
-
-            top_10_features = []
-            for j in range(10):
-                top_10_features.append(sort_features_name[j])
-
-            temp1 = self.trainDatasetsCopy[i].loc[:,top_10_features]
-            temp2 = self.validationDatasetsCopy[i].loc[:,top_10_features]
-            temp3 = self.testDatasetsCopy[i].loc[:,top_10_features]
-
-            # Converting to Dataframes
-            temp1 = pd.DataFrame(temp1, columns = top_10_features)
-            temp2 = pd.DataFrame(temp2, columns = top_10_features)
-            temp3 = pd.DataFrame(temp3, columns = top_10_features)
-
-
-            # Dropping Excess Data
-            self.trainDatasetsCopy[i].drop(inplace = True, columns = self.trainDatasetsCopy[i].columns[2:])
-            self.validationDatasetsCopy[i].drop(inplace = True, columns = self.validationDatasetsCopy[i].columns[2:])
-            self.testDatasetsCopy[i].drop(inplace = True, columns = self.testDatasetsCopy[i].columns[2:])
-
-            # Merging New Data
-            self.trainDatasetsCopy[i] = pd.merge(self.trainDatasetsCopy[i], temp1, left_index=True, right_index=True)
-            self.validationDatasetsCopy[i] = pd.merge(self.validationDatasetsCopy[i], temp2, left_index=True, right_index=True)
-            self.testDatasetsCopy[i] = pd.merge(self.testDatasetsCopy[i], temp3, left_index=True, right_index=True)
-
-    def result_df(self):
-        self.en()
-        return self.trainDatasetsCopy, self.validationDatasetsCopy, self.testDatasetsCopy, self.expected_RUL_datasets
 
 if __name__=="__main__":
 
