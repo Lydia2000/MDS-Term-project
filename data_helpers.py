@@ -4,7 +4,7 @@ import random
 import math
 import copy
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.decomposition import PCA
 from sklearn.linear_model import ElasticNet
 import torch
@@ -296,9 +296,9 @@ class DataHolder:
         valid_df = self.validation_datasets[dataset_index]
         test_df = self.test_datasets[dataset_index]
         
-        train_df = self.smooth_dataframe(train_df)
-        valid_df = self.smooth_dataframe(valid_df)
-        test_df = self.smooth_dataframe(test_df)
+        # train_df = self.smooth_dataframe(train_df)
+        # valid_df = self.smooth_dataframe(valid_df)
+        # test_df = self.smooth_dataframe(test_df)
 
         # select PC
         if self.config.preprocessing_method == 'pca':
@@ -317,12 +317,12 @@ class DataHolder:
         val_indices = list(valid_df[(valid_df['Expected RUL'] >= (window - 1)) & (valid_df['Time (Cycles)'] > 10)].index)
         
         # Create instances of custom datasets using the obtained indices
-        train_dataset = CustomDataset(train_indices, train_df)
-        val_dataset = CustomDataset(val_indices, valid_df)
+        train_dataset = CustomDataset(train_indices, train_df, window)
+        val_dataset = CustomDataset(val_indices, valid_df, window)
         min_unit_id = min(self.units[dataset_index])
         max_unit_id = max(self.units[dataset_index])
         units = np.arange(min_unit_id, max_unit_id+1)
-        test_dataset = TestDataset(units, test_df)
+        test_dataset = TestDataset(units, test_df, window)
 
         return train_dataset, val_dataset, test_dataset
 
@@ -334,8 +334,8 @@ class CustomDataset(Dataset):
         list_indices (list): List of indices to use for the dataset.
         df_train (pandas.DataFrame): Training dataframe.
     """
-    def __init__(self, list_indices, df_train):
-        
+    def __init__(self, list_indices, df_train, window_size):
+        self.window_size = window_size
         self.indices = list_indices
         self.df_train = df_train
         
@@ -347,16 +347,16 @@ class CustomDataset(Dataset):
         
         ind = self.indices[idx]
         
-        X_ = self.df_train.iloc[ind : ind + 20, :].copy()
-        y_ = self.df_train.iloc[ind + 19]['Expected RUL']
+        X_ = self.df_train.iloc[ind : ind + self.window_size, :].copy()
+        y_ = self.df_train.iloc[ind + self.window_size-1]['Expected RUL']
         X_ = X_.drop(['Unit Number','Time (Cycles)','Expected RUL'], axis = 1).to_numpy()
 
         return X_, y_
     
 class TestDataset(Dataset):
     
-    def __init__(self, units, df_test):
-        
+    def __init__(self, units, df_test, window_size):
+        self.window_size = window_size
         self.units = units
         self.df_test = df_test
         
@@ -368,7 +368,7 @@ class TestDataset(Dataset):
         
         n = self.units[idx]
         U = self.df_test[self.df_test['Unit Number'] == n].copy()
-        X_ = U.reset_index().iloc[-20:,:].drop(['index','Unit Number','Time (Cycles)','Expected RUL'], axis = 1).copy().to_numpy()
+        X_ = U.reset_index().iloc[-self.window_size:,:].drop(['index','Unit Number','Time (Cycles)','Expected RUL'], axis = 1).copy().to_numpy()
         y_ = U['Expected RUL'].min()
         
         return X_, y_
