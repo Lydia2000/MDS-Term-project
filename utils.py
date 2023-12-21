@@ -3,6 +3,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import mean_squared_error
 import seaborn as sns
+import torch
+
+def set_seeds(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
 def load(dir):
 
     with open(dir, "rb") as f:  # Python 3: open(..., "rb")
@@ -56,3 +63,9 @@ def calculate_RMSE(y_pred, y_true):
     rmse = mean_squared_error(y_true.cpu(), y_pred.cpu(), squared=False)
     print(f'prediction RMSE:{rmse}')
     return rmse
+
+def calculate_MAPE(y_pred, y_true):
+
+    mape = torch.mean(torch.abs((y_true - y_pred) / y_true) * 100)
+    print(f'prediction MAPE: {mape.item()}%')
+    return mape
