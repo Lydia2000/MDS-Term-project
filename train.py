@@ -22,7 +22,6 @@ class Trainer:
 
         # Assign attributes from the configuration and input datasets
         self.config = config
-        # self.model = config.model
         self.loss_fn = config.loss_fn
         self.epochs = config.epochs
 
@@ -84,7 +83,7 @@ class Trainer:
 
         # Set stopping criteria
         best_val_loss = float('inf')
-        current_patience = 0
+        current_patience = 20
         final = False
 
 
@@ -112,7 +111,7 @@ class Trainer:
                 loss.backward()
                 optimizer.step()
 
-            # Calculate  average loss over sequences and batches
+            # Calculate average loss over sequences and batches
             epoch_loss = np.mean(batch_losses)
             training_losses.append(epoch_loss)
 
@@ -125,25 +124,26 @@ class Trainer:
             # Format text for display
             format_text = lambda t: f"{t:.3f}" if t<10**3 and t>=10**-3 else f"{t:.3e}"
             epoch_loss = f", Loss: {format_text(epoch_loss)}"
+            val_epoch_loss = f", val Loss: {format_text(val_loss)}"
             estimated_time = ", ETC: %.2f minutes (%.2f seconds)" %\
                     ((self.epochs - epoch - 1) * (time.time() - t_start) / 60,
                     (self.epochs - epoch - 1) * (time.time() - t_start))
             
-            progress_bar.set_postfix_str(f"Epoch: {epoch+1}/{self.epochs}{epoch_loss}{estimated_time}")
+            progress_bar.set_postfix_str(f"Epoch: {epoch+1}/{self.epochs}{epoch_loss}{val_epoch_loss}{estimated_time}")
             progress_bar.update(1)
 
             # Check for improvement in validation loss
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                save(model, "LSTM.pkl")
                 current_patience = 0
             else:
                 current_patience += 1
             
-            # Early stopping check
-            if current_patience >= patience:
-                print(f"Early stopping at epoch {epoch+1} due to no improvement in validation loss.")
-                final = True
-                break
+            # # Early stopping check
+            # if current_patience >= patience:
+            #     print(f"Early stopping at epoch {epoch+1} due to no improvement in validation loss.")
+            #     break # stop
 
             if epoch + 1 == self.epochs:
                 print(f"Training completed for all {self.epochs} epochs.")
@@ -168,7 +168,6 @@ class Trainer:
         for result in self.training_step(model, optimizer):
             training_losses = result['training_losses']
             validation_losses = result['validation_losses']
-            is_final = result['final']
 
         return model, training_losses, validation_losses
 
